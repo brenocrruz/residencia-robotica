@@ -6,21 +6,23 @@ import difflib
 
 from audio_manager import AudioManager
 from ocr_engine import OCREngine
+from llm_corrector import LLMCorrector
 import config
 
-# Variáveis globais compartilhadas
+# Variáveis globais compartilhadas entre as threads
 frame_atual = None
 lock = threading.Lock()
 ultimo_texto_falado = ""
 parar_programa = False
 
-def thread_ocr(ocr_engine, audio_manager):
+def thread_ocr(ocr_engine, audio_manager, corretor):
     global ultimo_texto_falado, frame_atual, parar_programa
     estado_atual = "BUSCANDO" 
     
     while not parar_programa:
         time.sleep(config.TEMPO_ESPERA_OCR)
         
+        # Se o sistema já está falando, não processa um novo frame
         if audio_manager.falando:
             continue
             
@@ -29,17 +31,24 @@ def thread_ocr(ocr_engine, audio_manager):
                 continue
             img_para_ler = frame_atual.copy()
         
-        texto_completo = ocr_engine.processar(img_para_ler)
+        # 1. Extrai o texto bruto da imagem usando a IA
+        texto_bruto = ocr_engine.processar(img_para_ler)
         
-        if len(texto_completo) > 0:
-            print(f"[IA CAPTUROU]: '{texto_completo}'")
+        # 2. Se encontrou algo, manda para o LLM corrigir o contexto
+        texto_completo = texto_bruto
+        if len(texto_bruto) > 0:
+            print(f"[OCR BRUTO]: '{texto_bruto}'")
+            texto_completo = corretor.corrigir(texto_bruto)
+            print(f"[LLM CORRIGIDO]: '{texto_completo}'")
         
+        # 3. Verifica se o texto é válido e se é diferente do último falado
         if len(texto_completo) > 5:
             similaridade = difflib.SequenceMatcher(None, ultimo_texto_falado, texto_completo).ratio()
             
             if similaridade < config.SIMILARIDADE_MINIMA: 
                 ultimo_texto_falado = texto_completo
                 
+                # Se estava buscando e achou, avisa
                 if estado_atual == "BUSCANDO":
                     estado_atual = "LENDO"
                     texto_para_falar = "Texto encontrado. Lendo: " + texto_completo
@@ -48,27 +57,27 @@ def thread_ocr(ocr_engine, audio_manager):
                     
                 threading.Thread(target=audio_manager.falar, args=(texto_para_falar,), daemon=True).start()
         else:
+            # Se o texto sumiu da tela, volta a falar "Procurando texto"
             if estado_atual == "LENDO":
                 estado_atual = "BUSCANDO"
                 print("\n[ESTADO] Texto sumiu. Voltando a procurar...")
                 threading.Thread(target=audio_manager.falar, args=("Procurando texto",), daemon=True).start()
 
-
 def iniciar_camera():
     global frame_atual, parar_programa
     
+    # Inicializa os módulos
     audio_manager = AudioManager()
     ocr_engine = OCREngine()
+    corretor = LLMCorrector(modelo="gemma3:1b") # Certifique-se de ter rodado 'ollama pull gemma3:1b'
     
     camera = None
     
-    # Lógica inteligente de seleção de câmera:
-    # Se CAMERA_INDEX foi definido no config, testa apenas ele.
-    # Se for None, testa primeiro as externas (1 e 2) e deixa a webcam do notebook (0) por último.
+    # Lógica para priorizar a câmera externa (endoscópio) sobre a do notebook
     if config.CAMERA_INDEX is not None:
         indices_para_testar = [config.CAMERA_INDEX]
     else:
-        indices_para_testar = [1, 2, 0] # Prioriza câmeras externas (endoscópio)
+        indices_para_testar = [1, 2, 0] # Tenta o 1 e 2 (USB) antes do 0 (notebook)
     
     for i in indices_para_testar:
         cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
@@ -82,8 +91,8 @@ def iniciar_camera():
         print("ERRO: Nenhuma câmera encontrada.")
         return
 
-    # Inicia as threads
-    threading.Thread(target=thread_ocr, args=(ocr_engine, audio_manager), daemon=True).start()
+    # Inicia as threads do OCR e fala a primeira mensagem
+    threading.Thread(target=thread_ocr, args=(ocr_engine, audio_manager, corretor), daemon=True).start()
     threading.Thread(target=audio_manager.falar, args=("Procurando texto",), daemon=True).start()
     
     print("\n--- MODO TEMPO REAL ATIVADO ---")
@@ -97,6 +106,7 @@ def iniciar_camera():
         with lock:
             frame_atual = frame.copy()
 
+        # Desenha o status na tela
         if audio_manager.falando:
             cor = (0, 0, 255)
             status = "FALANDO..."
@@ -115,6 +125,7 @@ def iniciar_camera():
     parar_programa = True
     camera.release()
     cv2.destroyAllWindows()
+
 if __name__ == "__main__":
     iniciar_camera()
     print("--- Apresentação Finalizada ---")

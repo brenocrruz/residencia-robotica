@@ -1,11 +1,16 @@
-# 👓 Protótipo: Óculos Leitor (Tempo Real)
+# 👓 Protótipo: Óculos Leitor Inteligente
 
-Sistema assistivo que captura texto em tempo real via câmera USB, reconhece o conteúdo usando Inteligência Artificial local (RapidOCR) e converte em áudio (gTTS) com feedback de voz.
+Sistema assistivo que captura texto via câmera USB, reconhece usando Inteligência Artificial local (RapidOCR), corrige o contexto usando um Modelo de Linguagem (Ollama) e converte em áudio (gTTS).
+
+O projeto foi modularizado e agora conta com uma **Interface Gráfica (GUI)** moderna, permitindo o uso intuitivo no computador e recursos de gravação.
 
 ## 🛠️ Pré-requisitos
 1. **Python** (3.10 ou superior).
 2. **Câmera USB** (endoscópio ou webcam).
-3. **Não é necessário instalar o Tesseract.** O OCR é feito 100% via IA local.
+3. **Ollama instalado** (para a correção contextual do texto).
+    * Baixe em: [ollama.com](https://ollama.com)
+    * Baixe o modelo de português rodando no terminal: `ollama pull gemma3:1b`
+4. **Não é necessário instalar o Tesseract.** O OCR é feito 100% via IA local (RapidOCR).
 
 ## 📦 Instalação
 Com o ambiente virtual ativado, instale as dependências:
@@ -14,25 +19,30 @@ Com o ambiente virtual ativado, instale as dependências:
 **Nota importante sobre o OpenCV:** O `requirements.txt` fixa a versão `4.10.0.84`. Versões mais recentes (como a 5.0.0) causam erro de interface gráfica no Windows (`cv2.error: The function is not implemented`).
 
 ## 🚀 Como Rodar
-Execute o script:
-    python oculos_v1.py
+Execute o arquivo da interface gráfica:
+    python main_gui.py
 
-1. O programa iniciará e falará **"Procurando texto"**.
-2. A janela da câmera abrirá. Posicione a câmera a aproximadamente **4 cm** do texto.
-3. Mantenha a câmera firme por cerca de 2 segundos. O sistema fará a leitura em segundo plano.
-4. Ao encontrar texto, ele falará **"Texto encontrado. Lendo..."** e reproduzirá o conteúdo.
-5. O terminal mostrará exatamente o que a IA capturou (ex: `[IA CAPTUROU]: 'seu texto'`).
-6. Se você afastar a câmera do texto, ele falará "Procurando texto" novamente.
-7. Pressione **`q`** na janela da câmera para sair.
+1. A interface abrirá dividida em duas partes (vídeo à esquerda, controles à direita).
+2. O sistema iniciará falando **"Procurando texto"**.
+3. Posicione a câmera a aproximadamente **4 cm** do texto (devido ao foco fixo do endoscópio).
+4. O sistema fará a leitura em segundo plano (a cada 2 segundos) e falará o texto corrigido.
+5. A caixa de texto na interface mostrará a diferença entre o **OCR Bruto** e o **LLM Corrigido**.
+6. Utilize os botões na tela:
+    * **📸 Tirar Foto:** Salva um frame em `.jpg`.
+    * **🎥 Iniciar Gravação:** Salva um vídeo `.mp4` do que a câmera vê.
+    * **⏸️ Pausar Leitura:** Para a leitura automática sem fechar o programa.
+7. Para encerrar, feche a janela ou pressione `Ctrl+C` no terminal.
 
 ## ⚙️ Arquitetura e Otimizações
-* **Multithreading:** A câmera roda a 30 FPS de forma fluida, enquanto uma thread separada processa o OCR a cada 2 segundos e outra reproduz o áudio, evitando travamentos.
-* **Pré-processamento de Imagem:** O código converte a imagem para tons de cinza, aplica equalização de histograma e reduz ruído antes do OCR, melhorando a precisão em câmeras de baixa qualidade.
-* **Áudio sem Cortes:** O tempo de reprodução é calculado com base na duração real do arquivo MP3 (`miniaudio.get_file_info`), evitando que a voz seja cortada no meio da frase.
-* **Limpeza Automática:** Arquivos de áudio temporários usam nomes únicos (baseados em timestamp) e são limpos automaticamente para evitar conflitos de memória no Windows.
+* **Modularização:** O código foi dividido em `config.py`, `audio_manager.py`, `ocr_engine.py`, `llm_corrector.py` e `main_gui.py`, facilitando a manutenção.
+* **Correção com LLM:** O texto bruto do OCR (ex: erros de leitura como "oslular") é enviado ao Ollama, que usa o contexto para corrigir para "celular" antes de falar.
+* **Multithreading:** A câmera roda a 30 FPS de forma fluida, enquanto o OCR e o áudio rodam em threads separadas, evitando travamentos.
+* **Pré-processamento de Imagem:** Conversão para tons de cinza, equalização de histograma e redução de ruído antes do OCR, melhorando a precisão.
+* **Áudio sem Cortes:** O tempo de reprodução é calculado com base na duração real do arquivo MP3 (`miniaudio.get_file_info`).
+* **Prioridade de Câmera:** O sistema busca câmeras externas (índices 1 e 2) antes da webcam do notebook (índice 0).
+* **Fila de Áudio Segura:** Arquivos de áudio temporários usam nomes únicos para evitar conflitos de memória (PermissionError) no Windows.
 
 ## ⚠️ Solução de Problemas
 * **Erro `cv2.error: The function is not implemented`:** O OpenCV está na versão errada. Rode `pip install opencv-python==4.10.0.84`.
-* **Câmera não abre:** O código já varre os índices `0`, `1` e `2` automaticamente. Se não abrir, verifique se a câmera está conectada.
-* **Texto lido pela metade:** A câmera tem baixa resolução (640x480) e foco fixo. Garanta boa iluminação, evite reflexos e afaste-a um pouco (5 cm) para pegar mais área da página. O terminal `[IA CAPTUROU]` ajudará a diagnosticar.
-* **Erro `'RapidOCROutput' object is not iterable`:** O código já está adaptado para a API 3.x do RapidOCR.
+* **Texto lido pela metade:** A câmera tem baixa resolução e foco fixo. Garanta boa iluminação, evite reflexos e mantenha a distância exata.
+* **Ollama não corrige o texto:** Verifique se o aplicativo do Ollama está aberto e rodando em segundo plano no seu computador. Se o modelo não for encontrado, rode `ollama pull gemma3:1b`.

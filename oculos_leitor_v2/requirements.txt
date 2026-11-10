@@ -1,0 +1,12 @@
+# Recomendado: Python 3.11 ou 3.12 (64 bits)
+numpy>=1.24,<2.0
+opencv-python==4.10.0.84
+rapidocr
+onnxruntime
+kokoro-onnx
+sounddevice
+customtkinter
+pillow
+
+# Opcional: somente se ENABLE_LLM_CORRECTION = True em config.py
+ollama
